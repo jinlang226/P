@@ -1124,14 +1124,25 @@ namespace PChecker.SystematicTesting
 
             if (TraceValidator != null)
             {
-                var matchedBefore = TraceValidator.MatchedCount;
-                if (!TraceValidator.TryMatch(stateMachine.Id.Type, e, out var errorMessage))
+                var eventTypeName = e?.GetType().Name ?? string.Empty;
+                if (eventTypeName == "eValueEvent" || eventTypeName.EndsWith(".eValueEvent", StringComparison.Ordinal))
                 {
-                    Scheduler.NotifyAssertionFailure(errorMessage);
+                    if (!TraceValidator.TryMatchValue(e, out var valueError))
+                    {
+                        Scheduler.NotifyAssertionFailure(valueError);
+                    }
                 }
-                else if (TraceValidator.MatchedCount > matchedBefore)
+                else
                 {
-                    TraceInjector?.OnTraceMatched();
+                    var matchedBefore = TraceValidator.MatchedCount;
+                    if (!TraceValidator.TryMatch(stateMachine.Id.Type, e, out var errorMessage))
+                    {
+                        Scheduler.NotifyAssertionFailure(errorMessage);
+                    }
+                    else if (TraceValidator.MatchedCount > matchedBefore)
+                    {
+                        TraceInjector?.OnTraceMatched();
+                    }
                 }
             }
         }

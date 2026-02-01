@@ -151,7 +151,7 @@ namespace PChecker.SystematicTesting
             }
 
             // Get and order the operations by their id.
-            var ops = OperationMap.Values.OrderBy(op => op.Id);
+            IEnumerable<AsyncOperation> ops = OperationMap.Values.OrderBy(op => op.Id);
 
             // Try enable any operation that is currently waiting, but has its dependencies already satisfied.
             foreach (var op in ops)
@@ -163,7 +163,7 @@ namespace PChecker.SystematicTesting
                 }
             }
 
-            var candidateOps = ops;
+            IEnumerable<AsyncOperation> candidateOps = ops;
             if (CheckerConfiguration.IsTraceGuidedSchedulingEnabled)
             {
                 var targetType = Runtime.GetExpectedTraceTargetType();

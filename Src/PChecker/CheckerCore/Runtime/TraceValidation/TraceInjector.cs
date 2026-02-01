@@ -201,6 +201,11 @@ namespace PChecker.Runtime.TraceValidation
         {
             lock (Gate)
             {
+                if (TargetTypeNames.Count > 0)
+                {
+                    return Targets.Values.ToList();
+                }
+
                 if (!string.IsNullOrWhiteSpace(recordTargetType))
                 {
                     var matches = Targets.Where(kvp => MatchesType(recordTargetType, kvp.Key))

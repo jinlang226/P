@@ -14,6 +14,7 @@ namespace PChecker.Runtime.TraceValidation
     {
         private readonly List<TraceRecord> Trace;
         private readonly HashSet<string> TargetTypeNames;
+        private readonly Dictionary<string, TraceRecord> ExpectedByEventType;
         private int Index;
 
         internal int MatchedCount => Index;
@@ -28,6 +29,7 @@ namespace PChecker.Runtime.TraceValidation
 
             Trace = TraceRecord.LoadTrace(traceFile);
             TargetTypeNames = new HashSet<string>(StringComparer.Ordinal);
+            ExpectedByEventType = new Dictionary<string, TraceRecord>(StringComparer.Ordinal);
             if (targetTypeNames != null)
             {
                 foreach (var name in targetTypeNames)
@@ -85,7 +87,33 @@ namespace PChecker.Runtime.TraceValidation
                 return false;
             }
 
+            UpdateExpectedValues(expected);
             Index++;
+            return true;
+        }
+
+        internal bool TryMatchValue(Event e, out string errorMessage)
+        {
+            errorMessage = null;
+            if (!TryExtractTraceEvent(e, out var actual))
+            {
+                return true;
+            }
+
+            var key = BuildExpectedKey(actual.EventType, GetReconcileId(actual));
+            if (!ExpectedByEventType.TryGetValue(key, out var expected))
+            {
+                errorMessage = $"Trace value validation failed: no expected values for eventType='{actual.EventType}'.";
+                return false;
+            }
+
+            var mismatch = CompareValues(expected, actual);
+            if (mismatch != null)
+            {
+                errorMessage = mismatch;
+                return false;
+            }
+
             return true;
         }
 
@@ -137,6 +165,95 @@ namespace PChecker.Runtime.TraceValidation
             var next = Trace[Index];
             return $"Trace validation failed: expected {Trace.Count} events, but only observed {Index}. " +
                    $"Next expected eventType='{next.EventType}'.";
+        }
+
+        private void UpdateExpectedValues(TraceRecord record)
+        {
+            var key = BuildExpectedKey(record.EventType, GetReconcileId(record));
+            ExpectedByEventType[key] = record;
+        }
+
+        private static string BuildExpectedKey(string eventType, string reconcileId)
+        {
+            if (string.IsNullOrEmpty(reconcileId))
+            {
+                return eventType ?? string.Empty;
+            }
+
+            return $"{eventType}::{reconcileId}";
+        }
+
+        private static string GetReconcileId(TraceRecord record)
+        {
+            if (record.DetailsString != null &&
+                record.DetailsString.TryGetValue("reconcileId", out var rid) &&
+                !string.IsNullOrWhiteSpace(rid))
+            {
+                return rid;
+            }
+
+            return string.Empty;
+        }
+
+        private static string CompareValues(TraceRecord expected, TraceRecord actual)
+        {
+            if (!string.Equals(expected.EventType, actual.EventType, StringComparison.Ordinal))
+            {
+                return $"Trace value validation mismatch: expected eventType='{expected.EventType}', actual eventType='{actual.EventType}'.";
+            }
+
+            if (!string.IsNullOrEmpty(actual.PodName) &&
+                !string.Equals(actual.PodName, "unknown", StringComparison.OrdinalIgnoreCase))
+            {
+                if (!string.Equals(expected.PodName, actual.PodName, StringComparison.Ordinal))
+                {
+                    return $"Trace value validation mismatch: expected podName='{expected.PodName}', actual podName='{actual.PodName}'.";
+                }
+            }
+
+            var mismatch = CompareValueMap(actual.DetailsString, expected.DetailsString, "details");
+            if (mismatch != null)
+            {
+                return mismatch;
+            }
+
+            mismatch = CompareValueMap(actual.DetailsInt, expected.DetailsInt, "detailsInt");
+            if (mismatch != null)
+            {
+                return mismatch;
+            }
+
+            mismatch = CompareValueMap(actual.DetailsBool, expected.DetailsBool, "detailsBool");
+            if (mismatch != null)
+            {
+                return mismatch;
+            }
+
+            return null;
+        }
+
+        private static string CompareValueMap<T>(Dictionary<string, T> actual, Dictionary<string, T> expected, string label)
+        {
+            if (actual == null || actual.Count == 0)
+            {
+                return null;
+            }
+
+            expected ??= new Dictionary<string, T>();
+            foreach (var kvp in actual)
+            {
+                if (!expected.TryGetValue(kvp.Key, out var expectedValue))
+                {
+                    return $"Trace value validation mismatch: missing {label} key '{kvp.Key}'.";
+                }
+
+                if (!EqualityComparer<T>.Default.Equals(kvp.Value, expectedValue))
+                {
+                    return $"Trace value validation mismatch: {label}['{kvp.Key}'] expected '{expectedValue}', actual '{kvp.Value}'.";
+                }
+            }
+
+            return null;
         }
 
         private static string Compare(TraceRecord expected, TraceRecord actual, int index)
@@ -254,7 +371,7 @@ namespace PChecker.Runtime.TraceValidation
                 detailsBool = ConvertBoolMap(pDetailsBool);
             }
 
-            traceEvent = new TraceRecord(0, eventType, podName, details, detailsInt, detailsBool);
+            traceEvent = new TraceRecord(0, eventType, podName, string.Empty, details, detailsInt, detailsBool);
             return true;
         }
 
