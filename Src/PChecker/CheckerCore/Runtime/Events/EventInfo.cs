@@ -40,7 +40,7 @@ namespace PChecker.Runtime.Events
             : this(e)
         {
             OriginInfo = originInfo;
-            VectorTime = new VectorTime(v);
+            VectorTime = v == null ? null : new VectorTime(v);
         }
     }
 }

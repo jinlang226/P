@@ -34,6 +34,11 @@ public class VectorTime
     // Merge another vector clock into this one
     public void Merge(VectorTime otherTime)
     {
+        if (otherTime == null)
+        {
+            return;
+        }
+
         foreach (var entry in otherTime.Clock)
         {
             StateMachineId otherMachineId = entry.Key;

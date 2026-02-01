@@ -1,6 +1,7 @@
 ﻿// Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -162,8 +163,29 @@ namespace PChecker.SystematicTesting
                 }
             }
 
-            if (!Strategy.GetNextOperation(current, ops, out var next))
+            var candidateOps = ops;
+            if (CheckerConfiguration.IsTraceGuidedSchedulingEnabled)
             {
+                var targetType = Runtime.GetExpectedTraceTargetType();
+                if (!string.IsNullOrWhiteSpace(targetType))
+                {
+                    var filtered = ops.Where(op =>
+                        op is StateMachineOperation smOp &&
+                        MatchesType(targetType, smOp.StateMachine.Id.Type));
+                    if (filtered.Any())
+                    {
+                        candidateOps = filtered;
+                    }
+                }
+            }
+
+            if (!Strategy.GetNextOperation(current, candidateOps, out var next))
+            {
+                if (candidateOps != ops && Strategy.GetNextOperation(current, ops, out next))
+                {
+                    goto ScheduleChosenOperation;
+                }
+
                 // Checks if the program has deadlocked.
                 CheckIfProgramHasDeadlocked(ops.Select(op => op));
 
@@ -178,6 +200,7 @@ namespace PChecker.SystematicTesting
                 }
             }
 
+        ScheduleChosenOperation:
             ScheduledOperation = next;
             ScheduleTrace.AddSchedulingChoice(next.Id);
 
@@ -462,6 +485,21 @@ namespace PChecker.SystematicTesting
             }
 
             return report;
+        }
+
+        private static bool MatchesType(string targetType, string fullTypeName)
+        {
+            if (string.IsNullOrEmpty(targetType) || string.IsNullOrEmpty(fullTypeName))
+            {
+                return false;
+            }
+
+            if (string.Equals(targetType, fullTypeName, StringComparison.Ordinal))
+            {
+                return true;
+            }
+
+            return fullTypeName.EndsWith("." + targetType, StringComparison.Ordinal);
         }
 
         /// <summary>

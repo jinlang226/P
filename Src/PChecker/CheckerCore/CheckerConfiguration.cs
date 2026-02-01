@@ -182,6 +182,41 @@ namespace PChecker
         public string ScheduleTrace;
 
         /// <summary>
+        /// The trace file to validate against during runtime.
+        /// </summary>
+        [DataMember]
+        public string TraceValidationFile;
+
+        /// <summary>
+        /// If true, trace validation is enabled.
+        /// </summary>
+        [DataMember]
+        public bool IsTraceValidationEnabled;
+
+        /// <summary>
+        /// If true, trace injection is enabled.
+        /// </summary>
+        [DataMember]
+        public bool IsTraceInjectionEnabled;
+
+        /// <summary>
+        /// Optional list of target state machine type names to receive injected trace events.
+        /// </summary>
+        [DataMember]
+        public List<string> TraceInjectionTargets;
+
+        /// <summary>
+        /// Optional list of target state machine type names to validate trace events against.
+        /// </summary>
+        [DataMember]
+        public List<string> TraceValidationTargets;
+
+        /// <summary>
+        /// If true, scheduling will be guided by the trace target (if present).
+        /// </summary>
+        public bool IsTraceGuidedSchedulingEnabled;
+
+        /// <summary>
         /// If true, then messages are logged.
         /// </summary>
         [DataMember]
@@ -321,6 +356,12 @@ namespace PChecker
 
             ScheduleFile = string.Empty;
             ScheduleTrace = string.Empty;
+            TraceValidationFile = string.Empty;
+            IsTraceValidationEnabled = false;
+            IsTraceInjectionEnabled = false;
+            TraceInjectionTargets = new List<string>();
+            TraceValidationTargets = new List<string>();
+            IsTraceGuidedSchedulingEnabled = false;
 
             ReportCodeCoverage = false;
             ReportActivityCoverage = true;

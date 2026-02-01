@@ -21,6 +21,7 @@ using PChecker.Runtime.StateMachines;
 using PChecker.Runtime.StateMachines.EventQueues;
 using PChecker.Runtime.StateMachines.Exceptions;
 using PChecker.Runtime.StateMachines.Managers;
+using PChecker.Runtime.TraceValidation;
 using PChecker.SystematicTesting.Operations;
 using PChecker.SystematicTesting.Strategies;
 using PChecker.SystematicTesting.Strategies.Liveness;
@@ -151,6 +152,16 @@ namespace PChecker.SystematicTesting
         public JsonWriter JsonLogger => LogWriter.JsonLogger;
 
         /// <summary>
+        /// Trace validator used to match dequeued events against an external trace.
+        /// </summary>
+        private readonly TraceValidator TraceValidator;
+
+        /// <summary>
+        /// Trace injector used to send external trace events into the runtime.
+        /// </summary>
+        private readonly TraceInjector TraceInjector;
+
+        /// <summary>
         /// Returns the current hashed state of the monitors.
         /// </summary>
         /// <remarks>
@@ -218,6 +229,19 @@ namespace PChecker.SystematicTesting
             
             StateMachineMap = new ConcurrentDictionary<StateMachineId, StateMachine>();
             LogWriter = new LogWriter(checkerConfiguration);
+            if (checkerConfiguration.IsTraceValidationEnabled &&
+                !string.IsNullOrEmpty(checkerConfiguration.TraceValidationFile))
+            {
+                TraceValidator = new TraceValidator(checkerConfiguration.TraceValidationFile,
+                    checkerConfiguration.TraceValidationTargets, LogWriter.Logger);
+            }
+            if (checkerConfiguration.IsTraceInjectionEnabled &&
+                !string.IsNullOrEmpty(checkerConfiguration.TraceValidationFile))
+            {
+                TraceInjector = new TraceInjector(this, checkerConfiguration.TraceValidationFile,
+                    checkerConfiguration.TraceInjectionTargets, LogWriter.Logger);
+                TraceInjector.AttachValidator(TraceValidator);
+            }
 
             RootTaskId = Task.CurrentId;
             NameValueToStateMachineId = new ConcurrentDictionary<string, StateMachineId>();
@@ -246,6 +270,19 @@ namespace PChecker.SystematicTesting
         {
             StateMachineMap = new ConcurrentDictionary<StateMachineId, StateMachine>();
             LogWriter = new LogWriter(checkerConfiguration);
+            if (checkerConfiguration.IsTraceValidationEnabled &&
+                !string.IsNullOrEmpty(checkerConfiguration.TraceValidationFile))
+            {
+                TraceValidator = new TraceValidator(checkerConfiguration.TraceValidationFile,
+                    checkerConfiguration.TraceValidationTargets, LogWriter.Logger);
+            }
+            if (checkerConfiguration.IsTraceInjectionEnabled &&
+                !string.IsNullOrEmpty(checkerConfiguration.TraceValidationFile))
+            {
+                TraceInjector = new TraceInjector(this, checkerConfiguration.TraceValidationFile,
+                    checkerConfiguration.TraceInjectionTargets, LogWriter.Logger);
+                TraceInjector.AttachValidator(TraceValidator);
+            }
 
             RootTaskId = Task.CurrentId;
             NameValueToStateMachineId = new ConcurrentDictionary<string, StateMachineId>();
@@ -518,6 +555,7 @@ namespace PChecker.SystematicTesting
             var result = Scheduler.RegisterOperation(new StateMachineOperation(stateMachine));
             Assert(result, "StateMachine id '{0}' is used by an existing or previously halted state machine.", id.Value);
             LogWriter.LogCreateStateMachine(id, creator?.Id.Name, creator?.Id.Type);
+            TraceInjector?.OnStateMachineCreated(stateMachine);
 
             return stateMachine;
         }
@@ -574,6 +612,33 @@ namespace PChecker.SystematicTesting
             AssertExpectedCallerStateMachine(sender, "SendEvent");
 
             var enqueueStatus = EnqueueEvent(targetId, e, sender, out var target);
+            if (enqueueStatus is EnqueueStatus.EventHandlerNotRunning)
+            {
+                RunStateMachineEventHandler(target, null, false, null);
+            }
+        }
+
+        /// <summary>
+        /// Sends an event from the runtime without creating an explicit scheduling point.
+        /// </summary>
+        internal void SendEventFromRuntime(StateMachineId targetId, Event e)
+        {
+            if (e is null)
+            {
+                Assert(false, "Cannot send a null event.");
+                return;
+            }
+
+            var target = Scheduler.GetOperationWithId<StateMachineOperation>(targetId.Value)?.StateMachine;
+            Assert(target != null,
+                "Cannot send event '{0}' to state machine id '{1}' that is not bound to an state machine instance.",
+                e.GetType().FullName, targetId.Value);
+
+            var originInfo = new EventOriginInfo(null, "Runtime", string.Empty);
+            var eventInfo = new EventInfo(e, originInfo, null);
+            LogWriter.LogSendEvent(target.Id, string.Empty, string.Empty, string.Empty, e, isTargetHalted: false);
+
+            var enqueueStatus = target.Enqueue(e, eventInfo);
             if (enqueueStatus is EnqueueStatus.EventHandlerNotRunning)
             {
                 RunStateMachineEventHandler(target, null, false, null);
@@ -643,13 +708,20 @@ namespace PChecker.SystematicTesting
         /// </summary>
         private EnqueueStatus EnqueueEvent(StateMachine stateMachine, Event e, StateMachine sender)
         {
-            // Directly use sender as a StateMachine
-            var originInfo = new EventOriginInfo(sender.Id, sender.GetType().FullName,
-                sender.CurrentState.GetType().Name);
+            EventOriginInfo originInfo;
+            if (sender != null)
+            {
+                originInfo = new EventOriginInfo(sender.Id, sender.GetType().FullName,
+                    sender.CurrentState.GetType().Name);
+            }
+            else
+            {
+                originInfo = new EventOriginInfo(null, "Runtime", string.Empty);
+            }
 
-            var eventInfo = new EventInfo(e, originInfo, sender.VectorTime);
+            var eventInfo = new EventInfo(e, originInfo, sender?.VectorTime);
 
-            LogWriter.LogSendEvent(stateMachine.Id, sender.Id.Name, sender.Id.Type, sender.CurrentStateName,
+            LogWriter.LogSendEvent(stateMachine.Id, sender?.Id.Name, sender?.Id.Type, sender?.CurrentStateName ?? string.Empty,
                 e, isTargetHalted: false);
     
             return stateMachine.Enqueue(e, eventInfo);
@@ -1049,6 +1121,19 @@ namespace PChecker.SystematicTesting
 
             var stateName = stateMachine.CurrentStateName;
             LogWriter.LogDequeueEvent(stateMachine.Id, stateName, e);
+
+            if (TraceValidator != null)
+            {
+                var matchedBefore = TraceValidator.MatchedCount;
+                if (!TraceValidator.TryMatch(stateMachine.Id.Type, e, out var errorMessage))
+                {
+                    Scheduler.NotifyAssertionFailure(errorMessage);
+                }
+                else if (TraceValidator.MatchedCount > matchedBefore)
+                {
+                    TraceInjector?.OnTraceMatched();
+                }
+            }
         }
 
         /// <summary>
@@ -1411,7 +1496,28 @@ namespace PChecker.SystematicTesting
         {
             await Scheduler.WaitAsync();
             IsRunning = false;
+
+            if (TraceValidator != null && !TraceValidator.IsCompleted)
+            {
+                var errorMessage = TraceValidator.GetUnmatchedError();
+                if (!string.IsNullOrEmpty(errorMessage))
+                {
+                    Scheduler.NotifyAssertionFailure(errorMessage, killTasks: false, cancelExecution: false);
+                }
+            }
+            else if (TraceValidator != null && TraceValidator.IsCompleted)
+            {
+                Logger?.WriteLine($"Trace validation PASSED (matched {TraceValidator.MatchedCount}/{TraceValidator.TotalCount}).");
+            }
         }
+
+        /// <summary>
+        /// Returns a snapshot of the current state machines.
+        /// </summary>
+        internal IReadOnlyList<StateMachine> GetStateMachinesSnapshot() =>
+            StateMachineMap.Values.ToList();
+
+        internal string GetExpectedTraceTargetType() => TraceValidator?.GetExpectedTargetType();
         
         /// <summary>
         /// Terminates the runtime and notifies each active state machine to halt execution.

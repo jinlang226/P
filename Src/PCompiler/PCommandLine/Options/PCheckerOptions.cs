@@ -71,6 +71,16 @@ namespace Plang.Options
 
             var replayOptions = Parser.GetOrCreateGroup("replay", "Replay and debug options");
             replayOptions.AddArgument("replay", "r", "Schedule file to replay");
+            replayOptions.AddArgument("tracevalidate", "tv", "Trace JSON file to validate against dequeued events");
+            var traceTargets = replayOptions.AddArgument("traceinject-target", "tit",
+                "Optional trace injection target state machine types (comma-separated). If not provided, events are sent to machines that can receive eTraceEvent.");
+            traceTargets.IsMultiValue = true;
+            var traceValidationTargets = replayOptions.AddArgument("tracevalidate-target", "tvt",
+                "Optional trace validation target state machine types (comma-separated). If not provided, all dequeued trace events are validated.");
+            traceValidationTargets.IsMultiValue = true;
+            replayOptions.AddArgument("traceguided", null,
+                "Guide scheduling using trace targets (if present) by prioritizing enabled operations that match the next trace entry.",
+                typeof(bool));
 
             var advancedGroup = Parser.GetOrCreateGroup("advanced", "Advanced options");
             advancedGroup.AddArgument("explore", null, "Keep testing until the bound (e.g. schedule or time) is reached", typeof(bool));
@@ -102,6 +112,16 @@ namespace Plang.Options
                 foreach (var arg in result)
                 {
                     UpdateConfigurationWithParsedArgument(configuration, arg);
+                }
+
+                // Do not auto-select a test case for trace validation; require user to choose.
+                if (configuration.IsTraceValidationEnabled && configuration.TraceInjectionTargets.Count == 0)
+                {
+                    // Leave empty: TraceInjector will auto-target machines that can receive eTraceEvent.
+                }
+                if (configuration.IsTraceValidationEnabled && configuration.TraceValidationTargets.Count == 0)
+                {
+                    // Leave empty: TraceValidator will validate all dequeued trace events.
                 }
 
                 // if P compiled file is not set, then search for the compiled dll/jar file locally
@@ -265,6 +285,53 @@ namespace Plang.Options
                     checkerConfiguration.DisableEnvironmentExit = false;
                 }
 
+                    break;
+                case "tracevalidate":
+                {
+                    var filename = (string)option.Value;
+                    if (!File.Exists(filename))
+                    {
+                        Error.CheckerReportAndExit($"Trace file '{filename}' does not exist.");
+                    }
+
+                    checkerConfiguration.TraceValidationFile = filename;
+                    checkerConfiguration.IsTraceValidationEnabled = true;
+                    checkerConfiguration.IsTraceInjectionEnabled = true;
+                }
+
+                    break;
+                case "traceinject-target":
+                {
+                    if (option.Value is string[] values)
+                    {
+                        foreach (var value in values)
+                        {
+                            if (!string.IsNullOrWhiteSpace(value))
+                            {
+                                checkerConfiguration.TraceInjectionTargets.Add(value.Trim());
+                            }
+                        }
+                    }
+                }
+
+                    break;
+                case "tracevalidate-target":
+                {
+                    if (option.Value is string[] values)
+                    {
+                        foreach (var value in values)
+                        {
+                            if (!string.IsNullOrWhiteSpace(value))
+                            {
+                                checkerConfiguration.TraceValidationTargets.Add(value.Trim());
+                            }
+                        }
+                    }
+                }
+
+                    break;
+                case "traceguided":
+                    checkerConfiguration.IsTraceGuidedSchedulingEnabled = true;
                     break;
                 case "iterations":
                 case "schedules":

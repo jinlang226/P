@@ -282,6 +282,11 @@ namespace PChecker.Coverage
 
         private static string GetLabel(string stateMachineId, string fullyQualifiedName)
         {
+            if (string.IsNullOrEmpty(fullyQualifiedName))
+            {
+                return "ExternalState";
+            }
+
             if (fullyQualifiedName.StartsWith(stateMachineId))
             {
                 fullyQualifiedName = fullyQualifiedName.Substring(stateMachineId.Length + 1).Trim('+');
