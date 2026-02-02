@@ -22,6 +22,10 @@ namespace PChecker.Runtime.TraceValidation
         private TraceValidator Validator;
         private bool Started;
         private int RetryCount;
+        private bool StartCheckScheduled;
+        private int StartCheckAttempts;
+        private int LastTargetCount;
+        private const int MaxStartCheckAttempts = 5;
         private const int MaxRetryCount = 10;
         private int TraceIndex;
 
@@ -66,7 +70,7 @@ namespace PChecker.Runtime.TraceValidation
                     var canReceiveTrace = stateMachine.receives.Any(r =>
                         string.Equals(r, "eTraceEvent", StringComparison.Ordinal) ||
                         r.EndsWith(".eTraceEvent", StringComparison.Ordinal));
-                    if (canReceiveTrace)
+                    if (canReceiveTrace && !IsLikelyDriver(stateMachine.Id.Type))
                     {
                         Targets[stateMachine.Id.Type] = stateMachine.Id;
                         Logger?.WriteLine($"TraceInjector: target added {stateMachine.Id.Type} ({stateMachine.Id}).");
@@ -113,9 +117,7 @@ namespace PChecker.Runtime.TraceValidation
             {
                 if (Targets.Count > 0)
                 {
-                    Started = true;
-                    Logger?.WriteLine($"TraceInjector: starting with {Targets.Count} targets.");
-                    StartInjection();
+                    ScheduleStartCheckLocked();
                 }
                 return;
             }
@@ -128,9 +130,62 @@ namespace PChecker.Runtime.TraceValidation
             }
         }
 
+        private void ScheduleStartCheckLocked()
+        {
+            if (StartCheckScheduled)
+            {
+                return;
+            }
+
+            StartCheckScheduled = true;
+            Runtime.TaskController.ScheduleAction(CheckStartInjection, null, CancellationToken.None);
+        }
+
+        private void CheckStartInjection()
+        {
+            lock (Gate)
+            {
+                StartCheckScheduled = false;
+                if (Started)
+                {
+                    return;
+                }
+
+                if (Targets.Count >= 2)
+                {
+                    Started = true;
+                    Logger?.WriteLine($"TraceInjector: starting with {Targets.Count} targets.");
+                    StartInjection();
+                    return;
+                }
+
+                if (Targets.Count != LastTargetCount)
+                {
+                    LastTargetCount = Targets.Count;
+                    StartCheckAttempts = 0;
+                }
+
+                StartCheckAttempts++;
+                if (StartCheckAttempts >= MaxStartCheckAttempts && Targets.Count > 0)
+                {
+                    Started = true;
+                    Logger?.WriteLine($"TraceInjector: starting with {Targets.Count} targets.");
+                    StartInjection();
+                    return;
+                }
+
+                if (Targets.Count > 0)
+                {
+                    ScheduleStartCheckLocked();
+                }
+            }
+        }
+
         private void StartInjection()
         {
             Logger?.WriteLine("TraceInjector: starting injection.");
+            // Targets are already resolved (especially when explicitly specified),
+            // so inject immediately to avoid waiting on a scheduling point.
             InjectNextTraceEvent();
         }
 
@@ -146,7 +201,7 @@ namespace PChecker.Runtime.TraceValidation
                 return;
             }
 
-            InjectNextTraceEvent();
+            Runtime.TaskController.ScheduleAction(InjectNextTraceEvent, null, CancellationToken.None);
         }
 
         private void InjectNextTraceEvent()
@@ -226,6 +281,18 @@ namespace PChecker.Runtime.TraceValidation
             }
 
             return fullName != null && fullName.EndsWith("." + target, StringComparison.Ordinal);
+        }
+
+        private static bool IsLikelyDriver(string fullName)
+        {
+            if (string.IsNullOrEmpty(fullName))
+            {
+                return false;
+            }
+
+            return fullName.EndsWith("Driver", StringComparison.Ordinal) ||
+                   fullName.EndsWith("Test", StringComparison.Ordinal) ||
+                   fullName.EndsWith("Tester", StringComparison.Ordinal);
         }
 
         private static Type GetTraceEventType()

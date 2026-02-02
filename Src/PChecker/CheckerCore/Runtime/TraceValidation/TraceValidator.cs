@@ -15,6 +15,8 @@ namespace PChecker.Runtime.TraceValidation
         private readonly List<TraceRecord> Trace;
         private readonly HashSet<string> TargetTypeNames;
         private readonly Dictionary<string, TraceRecord> ExpectedByEventType;
+        private readonly Dictionary<string, int> LastSpecInt;
+        private readonly Dictionary<string, bool> LastSpecBool;
         private int Index;
 
         internal int MatchedCount => Index;
@@ -30,6 +32,9 @@ namespace PChecker.Runtime.TraceValidation
             Trace = TraceRecord.LoadTrace(traceFile);
             TargetTypeNames = new HashSet<string>(StringComparer.Ordinal);
             ExpectedByEventType = new Dictionary<string, TraceRecord>(StringComparer.Ordinal);
+            LastSpecInt = new Dictionary<string, int>(StringComparer.Ordinal);
+            LastSpecBool = new Dictionary<string, bool>(StringComparer.Ordinal);
+            InitializeSpecFromTrace();
             if (targetTypeNames != null)
             {
                 foreach (var name in targetTypeNames)
@@ -44,6 +49,18 @@ namespace PChecker.Runtime.TraceValidation
         }
 
         internal bool IsCompleted => Index >= Trace.Count;
+
+        private void InitializeSpecFromTrace()
+        {
+            foreach (var record in Trace)
+            {
+                UpdateLastSpecFromRecord(record);
+                if (LastSpecInt.Count > 0 || LastSpecBool.Count > 0)
+                {
+                    break;
+                }
+            }
+        }
 
         internal string GetExpectedTargetType()
         {
@@ -171,6 +188,85 @@ namespace PChecker.Runtime.TraceValidation
         {
             var key = BuildExpectedKey(record.EventType, GetReconcileId(record));
             ExpectedByEventType[key] = record;
+            UpdateExpectedSpecSnapshot(record);
+        }
+
+        private void UpdateExpectedSpecSnapshot(TraceRecord record)
+        {
+            var reconcileId = GetReconcileId(record);
+            if (LastSpecInt.Count > 0 || LastSpecBool.Count > 0)
+            {
+                var beforeDetails = new Dictionary<string, string>(StringComparer.Ordinal);
+                if (!string.IsNullOrWhiteSpace(reconcileId))
+                {
+                    beforeDetails["reconcileId"] = reconcileId;
+                }
+
+                var beforeRecord = new TraceRecord(
+                    record.Timestamp,
+                    "SpecSnapshotBefore",
+                    "unknown",
+                    string.Empty,
+                    beforeDetails,
+                    new Dictionary<string, int>(LastSpecInt, StringComparer.Ordinal),
+                    new Dictionary<string, bool>(LastSpecBool, StringComparer.Ordinal));
+
+                ExpectedByEventType[BuildExpectedKey(beforeRecord.EventType, reconcileId)] = beforeRecord;
+            }
+
+            UpdateLastSpecFromRecord(record);
+
+            if (LastSpecInt.Count == 0 && LastSpecBool.Count == 0)
+            {
+                return;
+            }
+
+            var afterDetails = new Dictionary<string, string>(StringComparer.Ordinal);
+            if (!string.IsNullOrWhiteSpace(reconcileId))
+            {
+                afterDetails["reconcileId"] = reconcileId;
+            }
+
+            var afterRecord = new TraceRecord(
+                record.Timestamp,
+                "SpecSnapshotAfter",
+                "unknown",
+                string.Empty,
+                afterDetails,
+                new Dictionary<string, int>(LastSpecInt, StringComparer.Ordinal),
+                new Dictionary<string, bool>(LastSpecBool, StringComparer.Ordinal));
+
+            ExpectedByEventType[BuildExpectedKey(afterRecord.EventType, reconcileId)] = afterRecord;
+        }
+
+        private void UpdateLastSpecFromRecord(TraceRecord record)
+        {
+            if (record.DetailsInt != null &&
+                record.DetailsInt.TryGetValue("specReplicas", out var specReplicas))
+            {
+                LastSpecInt["specReplicas"] = specReplicas;
+            }
+
+            if (record.DetailsBool != null &&
+                record.DetailsBool.TryGetValue("autoEnableAllFeatureFlags", out var autoEnable))
+            {
+                LastSpecBool["autoEnableAllFeatureFlags"] = autoEnable;
+            }
+
+            if (record.DetailsString != null)
+            {
+                if (record.DetailsString.TryGetValue("specReplicas", out var specReplicasStr) &&
+                    int.TryParse(specReplicasStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsedReplicas))
+                {
+                    LastSpecInt["specReplicas"] = parsedReplicas;
+                }
+
+                if (record.DetailsString.TryGetValue("autoEnableAllFeatureFlags", out var autoEnableStr) &&
+                    bool.TryParse(autoEnableStr, out var parsedAutoEnable))
+                {
+                    LastSpecBool["autoEnableAllFeatureFlags"] = parsedAutoEnable;
+                }
+            }
         }
 
         private static string BuildExpectedKey(string eventType, string reconcileId)
