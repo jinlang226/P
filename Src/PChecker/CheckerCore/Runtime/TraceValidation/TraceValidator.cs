@@ -5,6 +5,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
+using System.Text.Json;
 using PChecker.Runtime.Events;
 using PChecker.Runtime.Values;
 
@@ -14,9 +15,12 @@ namespace PChecker.Runtime.TraceValidation
     {
         private readonly List<TraceRecord> Trace;
         private readonly HashSet<string> TargetTypeNames;
-        private readonly Dictionary<string, TraceRecord> ExpectedByEventType;
+        private readonly Dictionary<string, Queue<TraceRecord>> ExpectedByEventType;
+        private readonly Dictionary<string, Queue<PendingValue>> PendingValues;
         private readonly Dictionary<string, int> LastSpecInt;
         private readonly Dictionary<string, bool> LastSpecBool;
+        private readonly string TraceFile;
+        private readonly TraceValidationReport Report;
         private int Index;
 
         internal int MatchedCount => Index;
@@ -29,11 +33,14 @@ namespace PChecker.Runtime.TraceValidation
                 throw new ArgumentException("Trace file path cannot be empty.");
             }
 
+            TraceFile = traceFile;
             Trace = TraceRecord.LoadTrace(traceFile);
             TargetTypeNames = new HashSet<string>(StringComparer.Ordinal);
-            ExpectedByEventType = new Dictionary<string, TraceRecord>(StringComparer.Ordinal);
+            ExpectedByEventType = new Dictionary<string, Queue<TraceRecord>>(StringComparer.Ordinal);
+            PendingValues = new Dictionary<string, Queue<PendingValue>>(StringComparer.Ordinal);
             LastSpecInt = new Dictionary<string, int>(StringComparer.Ordinal);
             LastSpecBool = new Dictionary<string, bool>(StringComparer.Ordinal);
+            Report = new TraceValidationReport(traceFile);
             InitializeSpecFromTrace();
             if (targetTypeNames != null)
             {
@@ -75,6 +82,11 @@ namespace PChecker.Runtime.TraceValidation
 
         internal bool TryMatch(string receiverType, Event e, out string errorMessage)
         {
+            return TryMatch(receiverType, null, e, out errorMessage);
+        }
+
+        internal bool TryMatch(string receiverType, string receiverState, Event e, out string errorMessage)
+        {
             errorMessage = null;
             if (TargetTypeNames.Count > 0 && !IsTargetType(receiverType))
             {
@@ -88,6 +100,7 @@ namespace PChecker.Runtime.TraceValidation
             if (Index >= Trace.Count)
             {
                 errorMessage = $"Trace validation failed: observed extra event '{actual.EventType}' after trace end.";
+                RecordEventMatch(Index, receiverType, receiverState, null, actual, errorMessage);
                 return false;
             }
 
@@ -98,18 +111,29 @@ namespace PChecker.Runtime.TraceValidation
                 return true;
             }
             var mismatch = Compare(expected, actual, Index);
+            RecordEventMatch(Index, receiverType, receiverState, expected, actual, mismatch);
             if (mismatch != null)
             {
                 errorMessage = mismatch;
                 return false;
             }
 
-            UpdateExpectedValues(expected);
+            var valueMismatch = UpdateExpectedValues(expected);
+            if (valueMismatch != null)
+            {
+                errorMessage = valueMismatch;
+                return false;
+            }
             Index++;
             return true;
         }
 
         internal bool TryMatchValue(Event e, out string errorMessage)
+        {
+            return TryMatchValue(null, null, e, out errorMessage);
+        }
+
+        internal bool TryMatchValue(string receiverType, string receiverState, Event e, out string errorMessage)
         {
             errorMessage = null;
             if (!TryExtractTraceEvent(e, out var actual))
@@ -117,19 +141,24 @@ namespace PChecker.Runtime.TraceValidation
                 return true;
             }
 
-            var key = BuildExpectedKey(actual.EventType, GetReconcileId(actual));
-            if (!ExpectedByEventType.TryGetValue(key, out var expected))
+            var key = BuildExpectedKey(actual.EventType, GetReconcileId(actual), GetTraceId(actual));
+            if (!ExpectedByEventType.TryGetValue(key, out var expectedQueue) || expectedQueue.Count == 0)
             {
-                errorMessage = $"Trace value validation failed: no expected values for eventType='{actual.EventType}'.";
-                return false;
+                var pendingQueue = GetOrCreatePendingQueue(key);
+                pendingQueue.Enqueue(new PendingValue(actual, receiverType, receiverState));
+                return true;
             }
 
+            var expected = expectedQueue.Peek();
             var mismatch = CompareValues(expected, actual);
             if (mismatch != null)
             {
                 errorMessage = mismatch;
                 return false;
             }
+
+            expectedQueue.Dequeue();
+            RecordValueMatch(receiverType, receiverState, expected, actual, string.Empty);
 
             return true;
         }
@@ -176,6 +205,22 @@ namespace PChecker.Runtime.TraceValidation
         {
             if (Index >= Trace.Count)
             {
+                if (PendingValues.Count == 0)
+                {
+                    return null;
+                }
+
+                foreach (var pendingQueue in PendingValues.Values)
+                {
+                    if (pendingQueue.Count == 0)
+                    {
+                        continue;
+                    }
+
+                    var pending = pendingQueue.Peek();
+                    return $"Trace value validation failed: observed value event '{pending.Actual.EventType}' without a matching trace entry.";
+                }
+
                 return null;
             }
 
@@ -184,22 +229,42 @@ namespace PChecker.Runtime.TraceValidation
                    $"Next expected eventType='{next.EventType}'.";
         }
 
-        private void UpdateExpectedValues(TraceRecord record)
+        private string UpdateExpectedValues(TraceRecord record)
         {
-            var key = BuildExpectedKey(record.EventType, GetReconcileId(record));
-            ExpectedByEventType[key] = record;
-            UpdateExpectedSpecSnapshot(record);
+            var key = BuildExpectedKey(record.EventType, GetReconcileId(record), GetTraceId(record));
+            var mismatch = EnqueueExpectedOrMatchPending(key, record);
+            if (mismatch != null)
+            {
+                return mismatch;
+            }
+
+            return UpdateExpectedSpecSnapshot(record);
         }
 
-        private void UpdateExpectedSpecSnapshot(TraceRecord record)
+        private string UpdateExpectedSpecSnapshot(TraceRecord record)
         {
+            // Tyler trace-driven models emit SpecSnapshotBefore/After when handling
+            // SpecObserved semantics, not for every dequeued trace event. Keep the
+            // running spec cache updated on all events, but only enqueue snapshot
+            // expectations at SpecObserved boundaries.
+            if (!string.Equals(record.EventType, "SpecObserved", StringComparison.Ordinal))
+            {
+                UpdateLastSpecFromRecord(record);
+                return null;
+            }
+
             var reconcileId = GetReconcileId(record);
+            var traceId = GetTraceId(record);
             if (LastSpecInt.Count > 0 || LastSpecBool.Count > 0)
             {
                 var beforeDetails = new Dictionary<string, string>(StringComparer.Ordinal);
                 if (!string.IsNullOrWhiteSpace(reconcileId))
                 {
                     beforeDetails["reconcileId"] = reconcileId;
+                }
+                if (!string.IsNullOrWhiteSpace(traceId))
+                {
+                    beforeDetails["traceId"] = traceId;
                 }
 
                 var beforeRecord = new TraceRecord(
@@ -211,20 +276,29 @@ namespace PChecker.Runtime.TraceValidation
                     new Dictionary<string, int>(LastSpecInt, StringComparer.Ordinal),
                     new Dictionary<string, bool>(LastSpecBool, StringComparer.Ordinal));
 
-                ExpectedByEventType[BuildExpectedKey(beforeRecord.EventType, reconcileId)] = beforeRecord;
+                var beforeMismatch = EnqueueExpectedOrMatchPending(
+                    BuildExpectedKey(beforeRecord.EventType, reconcileId, traceId), beforeRecord);
+                if (beforeMismatch != null)
+                {
+                    return beforeMismatch;
+                }
             }
 
             UpdateLastSpecFromRecord(record);
 
             if (LastSpecInt.Count == 0 && LastSpecBool.Count == 0)
             {
-                return;
+                return null;
             }
 
             var afterDetails = new Dictionary<string, string>(StringComparer.Ordinal);
             if (!string.IsNullOrWhiteSpace(reconcileId))
             {
                 afterDetails["reconcileId"] = reconcileId;
+            }
+            if (!string.IsNullOrWhiteSpace(traceId))
+            {
+                afterDetails["traceId"] = traceId;
             }
 
             var afterRecord = new TraceRecord(
@@ -236,7 +310,48 @@ namespace PChecker.Runtime.TraceValidation
                 new Dictionary<string, int>(LastSpecInt, StringComparer.Ordinal),
                 new Dictionary<string, bool>(LastSpecBool, StringComparer.Ordinal));
 
-            ExpectedByEventType[BuildExpectedKey(afterRecord.EventType, reconcileId)] = afterRecord;
+            return EnqueueExpectedOrMatchPending(
+                BuildExpectedKey(afterRecord.EventType, reconcileId, traceId), afterRecord);
+        }
+
+        private void EnqueueExpected(string key, TraceRecord record)
+        {
+            if (!ExpectedByEventType.TryGetValue(key, out var queue))
+            {
+                queue = new Queue<TraceRecord>();
+                ExpectedByEventType[key] = queue;
+            }
+            queue.Enqueue(record);
+        }
+
+        private string EnqueueExpectedOrMatchPending(string key, TraceRecord expected)
+        {
+            if (PendingValues.TryGetValue(key, out var pendingQueue) && pendingQueue.Count > 0)
+            {
+                var pending = pendingQueue.Dequeue();
+                if (pendingQueue.Count == 0)
+                {
+                    PendingValues.Remove(key);
+                }
+
+                var mismatch = CompareValues(expected, pending.Actual);
+                RecordValueMatch(pending.ReceiverType, pending.ReceiverState, expected, pending.Actual, mismatch);
+                return mismatch;
+            }
+
+            EnqueueExpected(key, expected);
+            return null;
+        }
+
+        private Queue<PendingValue> GetOrCreatePendingQueue(string key)
+        {
+            if (!PendingValues.TryGetValue(key, out var queue))
+            {
+                queue = new Queue<PendingValue>();
+                PendingValues[key] = queue;
+            }
+
+            return queue;
         }
 
         private void UpdateLastSpecFromRecord(TraceRecord record)
@@ -269,14 +384,14 @@ namespace PChecker.Runtime.TraceValidation
             }
         }
 
-        private static string BuildExpectedKey(string eventType, string reconcileId)
+        private static string BuildExpectedKey(string eventType, string reconcileId, string traceId)
         {
-            if (string.IsNullOrEmpty(reconcileId))
+            if (string.IsNullOrEmpty(reconcileId) && string.IsNullOrEmpty(traceId))
             {
                 return eventType ?? string.Empty;
             }
 
-            return $"{eventType}::{reconcileId}";
+            return $"{eventType}::{reconcileId ?? string.Empty}::{traceId ?? string.Empty}";
         }
 
         private static string GetReconcileId(TraceRecord record)
@@ -286,6 +401,18 @@ namespace PChecker.Runtime.TraceValidation
                 !string.IsNullOrWhiteSpace(rid))
             {
                 return rid;
+            }
+
+            return string.Empty;
+        }
+
+        private static string GetTraceId(TraceRecord record)
+        {
+            if (record.DetailsString != null &&
+                record.DetailsString.TryGetValue("traceId", out var traceId) &&
+                !string.IsNullOrWhiteSpace(traceId))
+            {
+                return traceId;
             }
 
             return string.Empty;
@@ -484,6 +611,20 @@ namespace PChecker.Runtime.TraceValidation
             return true;
         }
 
+        private sealed class PendingValue
+        {
+            internal PendingValue(TraceRecord actual, string receiverType, string receiverState)
+            {
+                Actual = actual;
+                ReceiverType = receiverType;
+                ReceiverState = receiverState;
+            }
+
+            internal TraceRecord Actual { get; }
+            internal string ReceiverType { get; }
+            internal string ReceiverState { get; }
+        }
+
         private static string GetStringValue(IPValue value)
         {
             return value switch
@@ -532,6 +673,130 @@ namespace PChecker.Runtime.TraceValidation
             return result;
         }
 
+        internal void WriteReport(string outputDirectory)
+        {
+            if (string.IsNullOrWhiteSpace(outputDirectory))
+            {
+                return;
+            }
+
+            try
+            {
+                Report.TotalCount = TotalCount;
+                Report.MatchedCount = MatchedCount;
+                var path = Path.Combine(outputDirectory, "trace_validation_report.json");
+                var options = new JsonSerializerOptions
+                {
+                    WriteIndented = true
+                };
+                var json = JsonSerializer.Serialize(Report, options);
+                File.WriteAllText(path, json);
+            }
+            catch
+            {
+                // Do not fail trace validation if report generation fails.
+            }
+        }
+
+        private void RecordEventMatch(int index, string receiverType, string receiverState, TraceRecord expected, TraceRecord actual, string mismatch)
+        {
+            if (actual == null)
+            {
+                return;
+            }
+
+            Report.EventMatches.Add(new TraceEventMatch
+            {
+                Index = index,
+                ReceiverType = receiverType ?? string.Empty,
+                ReceiverState = receiverState ?? string.Empty,
+                Expected = TraceRecordDto.From(expected),
+                Actual = TraceRecordDto.From(actual),
+                Result = string.IsNullOrEmpty(mismatch) ? "match" : "mismatch",
+                Error = mismatch ?? string.Empty
+            });
+        }
+
+        private void RecordValueMatch(string receiverType, string receiverState, TraceRecord expected, TraceRecord actual, string mismatch, string resultOverride = null)
+        {
+            if (actual == null)
+            {
+                return;
+            }
+
+            Report.ValueMatches.Add(new TraceValueMatch
+            {
+                ReceiverType = receiverType ?? string.Empty,
+                ReceiverState = receiverState ?? string.Empty,
+                Expected = TraceRecordDto.From(expected),
+                Actual = TraceRecordDto.From(actual),
+                Result = resultOverride ?? (string.IsNullOrEmpty(mismatch) ? "match" : "mismatch"),
+                Error = mismatch ?? string.Empty
+            });
+        }
+
+        internal sealed class TraceValidationReport
+        {
+            public TraceValidationReport(string traceFile)
+            {
+                TraceFile = traceFile;
+            }
+
+            public string TraceFile { get; set; }
+            public int TotalCount { get; set; }
+            public int MatchedCount { get; set; }
+            public List<TraceEventMatch> EventMatches { get; } = new();
+            public List<TraceValueMatch> ValueMatches { get; } = new();
+        }
+
+        internal sealed class TraceEventMatch
+        {
+            public int Index { get; set; }
+            public string ReceiverType { get; set; }
+            public string ReceiverState { get; set; }
+            public TraceRecordDto Expected { get; set; }
+            public TraceRecordDto Actual { get; set; }
+            public string Result { get; set; }
+            public string Error { get; set; }
+        }
+
+        internal sealed class TraceValueMatch
+        {
+            public string ReceiverType { get; set; }
+            public string ReceiverState { get; set; }
+            public TraceRecordDto Expected { get; set; }
+            public TraceRecordDto Actual { get; set; }
+            public string Result { get; set; }
+            public string Error { get; set; }
+        }
+
+        internal sealed class TraceRecordDto
+        {
+            public string EventType { get; set; }
+            public string PodName { get; set; }
+            public string ReconcileId { get; set; }
+            public Dictionary<string, string> Details { get; set; }
+            public Dictionary<string, int> DetailsInt { get; set; }
+            public Dictionary<string, bool> DetailsBool { get; set; }
+
+            public static TraceRecordDto From(TraceRecord record)
+            {
+                if (record == null)
+                {
+                    return null;
+                }
+
+                return new TraceRecordDto
+                {
+                    EventType = record.EventType,
+                    PodName = record.PodName,
+                    ReconcileId = GetReconcileId(record),
+                    Details = record.DetailsString == null ? new Dictionary<string, string>() : new Dictionary<string, string>(record.DetailsString),
+                    DetailsInt = record.DetailsInt == null ? new Dictionary<string, int>() : new Dictionary<string, int>(record.DetailsInt),
+                    DetailsBool = record.DetailsBool == null ? new Dictionary<string, bool>() : new Dictionary<string, bool>(record.DetailsBool)
+                };
+            }
+        }
         private static Dictionary<string, bool> ConvertBoolMap(PMap map)
         {
             var result = new Dictionary<string, bool>();

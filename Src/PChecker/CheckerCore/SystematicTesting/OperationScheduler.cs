@@ -164,26 +164,42 @@ namespace PChecker.SystematicTesting
             }
 
             IEnumerable<AsyncOperation> candidateOps = ops;
+            var hasStrictTraceTarget = false;
+            var strictTargetType = string.Empty;
             if (CheckerConfiguration.IsTraceGuidedSchedulingEnabled)
             {
                 var targetType = Runtime.GetExpectedTraceTargetType();
                 if (!string.IsNullOrWhiteSpace(targetType))
                 {
-                    var filtered = ops.Where(op =>
+                    hasStrictTraceTarget = true;
+                    strictTargetType = targetType;
+
+                    var enabledOps = ops.Where(op => op.Status is AsyncOperationStatus.Enabled).ToList();
+                    var filteredEnabledOps = enabledOps.Where(op =>
                         op is StateMachineOperation smOp &&
-                        MatchesType(targetType, smOp.StateMachine.Id.Type));
-                    if (filtered.Any())
+                        MatchesType(targetType, smOp.StateMachine.Id.Type)).ToList();
+
+                    if (filteredEnabledOps.Count == 0)
                     {
-                        candidateOps = filtered;
+                        var enabledSummary = string.Join(", ", enabledOps.Select(op => $"{op.Id}:{op.Name}"));
+                        var message = string.IsNullOrWhiteSpace(enabledSummary)
+                            ? $"Trace-guided enabled-check failed: expected next targetType '{targetType}', but there are no enabled operations."
+                            : $"Trace-guided enabled-check failed: expected next targetType '{targetType}', but no enabled operation matches it. Enabled operations: [{enabledSummary}].";
+                        NotifyAssertionFailure(message);
+                        return;
                     }
+
+                    candidateOps = filteredEnabledOps;
                 }
             }
 
             if (!Strategy.GetNextOperation(current, candidateOps, out var next))
             {
-                if (candidateOps != ops && Strategy.GetNextOperation(current, ops, out next))
+                if (hasStrictTraceTarget)
                 {
-                    goto ScheduleChosenOperation;
+                    NotifyAssertionFailure(
+                        $"Trace-guided scheduling failed: could not pick next operation for targetType '{strictTargetType}' from enabled candidates.");
+                    return;
                 }
 
                 // Checks if the program has deadlocked.
@@ -200,7 +216,6 @@ namespace PChecker.SystematicTesting
                 }
             }
 
-        ScheduleChosenOperation:
             ScheduledOperation = next;
             ScheduleTrace.AddSchedulingChoice(next.Id);
 

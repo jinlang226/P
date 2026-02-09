@@ -1127,7 +1127,7 @@ namespace PChecker.SystematicTesting
                 var eventTypeName = e?.GetType().Name ?? string.Empty;
                 if (eventTypeName == "eValueEvent" || eventTypeName.EndsWith(".eValueEvent", StringComparison.Ordinal))
                 {
-                    if (!TraceValidator.TryMatchValue(e, out var valueError))
+                    if (!TraceValidator.TryMatchValue(stateMachine.Id.Type, stateName, e, out var valueError))
                     {
                         Scheduler.NotifyAssertionFailure(valueError);
                     }
@@ -1135,7 +1135,7 @@ namespace PChecker.SystematicTesting
                 else
                 {
                     var matchedBefore = TraceValidator.MatchedCount;
-                    if (!TraceValidator.TryMatch(stateMachine.Id.Type, e, out var errorMessage))
+                    if (!TraceValidator.TryMatch(stateMachine.Id.Type, stateName, e, out var errorMessage))
                     {
                         Scheduler.NotifyAssertionFailure(errorMessage);
                     }
@@ -1519,6 +1519,11 @@ namespace PChecker.SystematicTesting
             else if (TraceValidator != null && TraceValidator.IsCompleted)
             {
                 Logger?.WriteLine($"Trace validation PASSED (matched {TraceValidator.MatchedCount}/{TraceValidator.TotalCount}).");
+            }
+
+            if (TraceValidator != null)
+            {
+                TraceValidator.WriteReport(CheckerConfiguration.OutputDirectory);
             }
         }
 
