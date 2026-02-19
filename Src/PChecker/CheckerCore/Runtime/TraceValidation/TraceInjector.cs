@@ -22,10 +22,6 @@ namespace PChecker.Runtime.TraceValidation
         private TraceValidator Validator;
         private bool Started;
         private int RetryCount;
-        private bool StartCheckScheduled;
-        private int StartCheckAttempts;
-        private int LastTargetCount;
-        private const int MaxStartCheckAttempts = 5;
         private const int MaxRetryCount = 10;
         private int TraceIndex;
 
@@ -97,13 +93,20 @@ namespace PChecker.Runtime.TraceValidation
                 }
                 }
 
-                TryStartInjectionLocked();
             }
         }
 
         internal void AttachValidator(TraceValidator validator)
         {
             Validator = validator;
+        }
+
+        internal void TryStartInjection()
+        {
+            lock (Gate)
+            {
+                TryStartInjectionLocked();
+            }
         }
 
         private void TryStartInjectionLocked()
@@ -117,7 +120,9 @@ namespace PChecker.Runtime.TraceValidation
             {
                 if (Targets.Count > 0)
                 {
-                    ScheduleStartCheckLocked();
+                    Started = true;
+                    Logger?.WriteLine($"TraceInjector: starting with {Targets.Count} targets.");
+                    StartInjection();
                 }
                 return;
             }
@@ -130,62 +135,11 @@ namespace PChecker.Runtime.TraceValidation
             }
         }
 
-        private void ScheduleStartCheckLocked()
-        {
-            if (StartCheckScheduled)
-            {
-                return;
-            }
 
-            StartCheckScheduled = true;
-            Runtime.TaskController.ScheduleAction(CheckStartInjection, null, CancellationToken.None);
-        }
-
-        private void CheckStartInjection()
-        {
-            lock (Gate)
-            {
-                StartCheckScheduled = false;
-                if (Started)
-                {
-                    return;
-                }
-
-                if (Targets.Count >= 2)
-                {
-                    Started = true;
-                    Logger?.WriteLine($"TraceInjector: starting with {Targets.Count} targets.");
-                    StartInjection();
-                    return;
-                }
-
-                if (Targets.Count != LastTargetCount)
-                {
-                    LastTargetCount = Targets.Count;
-                    StartCheckAttempts = 0;
-                }
-
-                StartCheckAttempts++;
-                if (StartCheckAttempts >= MaxStartCheckAttempts && Targets.Count > 0)
-                {
-                    Started = true;
-                    Logger?.WriteLine($"TraceInjector: starting with {Targets.Count} targets.");
-                    StartInjection();
-                    return;
-                }
-
-                if (Targets.Count > 0)
-                {
-                    ScheduleStartCheckLocked();
-                }
-            }
-        }
 
         private void StartInjection()
         {
             Logger?.WriteLine("TraceInjector: starting injection.");
-            // Targets are already resolved (especially when explicitly specified),
-            // so inject immediately to avoid waiting on a scheduling point.
             InjectNextTraceEvent();
         }
 
@@ -201,7 +155,9 @@ namespace PChecker.Runtime.TraceValidation
                 return;
             }
 
-            Runtime.TaskController.ScheduleAction(InjectNextTraceEvent, null, CancellationToken.None);
+            // Inject immediately so strict guided scheduling can require that e_{i+1}
+            // is enabled right after matching e_i.
+            InjectNextTraceEvent();
         }
 
         private void InjectNextTraceEvent()
@@ -258,6 +214,26 @@ namespace PChecker.Runtime.TraceValidation
             {
                 if (TargetTypeNames.Count > 0)
                 {
+                    if (!string.IsNullOrWhiteSpace(recordTargetType))
+                    {
+                        var recordMatches = Targets.Where(kvp => MatchesType(recordTargetType, kvp.Key))
+                            .Select(kvp => kvp.Value)
+                            .ToList();
+                        if (recordMatches.Count > 0)
+                        {
+                            return recordMatches;
+                        }
+                    }
+
+                    // In explicit-target mode, prefer TraceAdapter fan-out when present.
+                    var adapterMatches = Targets.Where(kvp => MatchesType("TraceAdapter", kvp.Key))
+                        .Select(kvp => kvp.Value)
+                        .ToList();
+                    if (adapterMatches.Count > 0)
+                    {
+                        return adapterMatches;
+                    }
+
                     return Targets.Values.ToList();
                 }
 

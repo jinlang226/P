@@ -10,6 +10,8 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using PChecker.Exceptions;
+using PChecker.Runtime.StateMachines.EventQueues;
+using PChecker.Runtime.TraceValidation;
 using PChecker.SystematicTesting.Operations;
 using PChecker.SystematicTesting.Strategies;
 using PChecker.SystematicTesting.Traces;
@@ -166,8 +168,12 @@ namespace PChecker.SystematicTesting
             IEnumerable<AsyncOperation> candidateOps = ops;
             var hasStrictTraceTarget = false;
             var strictTargetType = string.Empty;
+            TraceRecord expectedTraceRecord = null;
+            var matchedTraceCount = 0;
             if (CheckerConfiguration.IsTraceGuidedSchedulingEnabled)
             {
+                Runtime.TryGetExpectedTraceRecord(out expectedTraceRecord);
+                matchedTraceCount = Runtime.GetMatchedTraceCount();
                 var targetType = Runtime.GetExpectedTraceTargetType();
                 if (!string.IsNullOrWhiteSpace(targetType))
                 {
@@ -190,6 +196,33 @@ namespace PChecker.SystematicTesting
                     }
 
                     candidateOps = filteredEnabledOps;
+                }
+
+                if (expectedTraceRecord != null)
+                {
+                    var enabledValidationTargets = candidateOps
+                        .Where(op => IsEnabledValidationTargetOperation(op))
+                        .ToList();
+                    var expectedCandidates = FilterCandidatesByExpectedTraceEvent(enabledValidationTargets, expectedTraceRecord).ToList();
+                    if (expectedCandidates.Count == 0)
+                    {
+                        var hasDequeuableTraceTarget = enabledValidationTargets.Any(op => IsDequeuableTraceValidationTargetOperation(op));
+                        if (hasDequeuableTraceTarget)
+                        {
+                            var enabledSummary = string.Join(", ", ops.Where(op => op.Status is AsyncOperationStatus.Enabled)
+                                .Select(DescribeEnabledOperation));
+                            NotifyAssertionFailure(
+                                $"Trace-guided enabled-check failed: next expected trace event '{expectedTraceRecord.EventType}' is not dequeueable by any enabled operation after matching {matchedTraceCount} event(s). Enabled operations: [{enabledSummary}].");
+                            return;
+                        }
+                    }
+                    else
+                    {
+                        // Deterministic strict replay: avoid branching when multiple enabled ops match.
+                        candidateOps = matchedTraceCount > 0
+                            ? expectedCandidates.OrderBy(op => op.Id).Take(1).ToList()
+                            : expectedCandidates;
+                    }
                 }
             }
 
@@ -500,6 +533,142 @@ namespace PChecker.SystematicTesting
             }
 
             return report;
+        }
+
+        private bool IsEnabledValidationTargetOperation(AsyncOperation op)
+        {
+            if (op.Status != AsyncOperationStatus.Enabled || op is not StateMachineOperation smOp)
+            {
+                return false;
+            }
+
+            return IsValidationTargetType(smOp.StateMachine.Id.Type);
+        }
+
+        private bool IsDequeuableTraceValidationTargetOperation(AsyncOperation op)
+        {
+            if (!IsEnabledValidationTargetOperation(op))
+            {
+                return false;
+            }
+
+            var smOp = op as StateMachineOperation;
+            if (smOp == null)
+            {
+                return false;
+            }
+
+            var (status, e, _) = smOp.StateMachine.PeekNextEvent();
+            if (status != DequeueStatus.Success || e == null)
+            {
+                return false;
+            }
+
+            return TraceValidator.TryExtractTraceEvent(e, out _);
+        }
+
+        private bool IsValidationTargetType(string fullTypeName)
+        {
+            if (CheckerConfiguration.TraceValidationTargets == null ||
+                CheckerConfiguration.TraceValidationTargets.Count == 0)
+            {
+                return true;
+            }
+
+            return CheckerConfiguration.TraceValidationTargets.Any(target => MatchesType(target, fullTypeName));
+        }
+
+        private static IEnumerable<AsyncOperation> FilterCandidatesByExpectedTraceEvent(
+            IEnumerable<AsyncOperation> candidates,
+            TraceRecord expected)
+        {
+            foreach (var op in candidates)
+            {
+                if (op.Status != AsyncOperationStatus.Enabled || op is not StateMachineOperation smOp)
+                {
+                    continue;
+                }
+
+                var (status, e, _) = smOp.StateMachine.PeekNextEvent();
+                if (status != DequeueStatus.Success || e is null)
+                {
+                    continue;
+                }
+
+                if (!TraceValidator.TryExtractTraceEvent(e, out var actual))
+                {
+                    continue;
+                }
+
+                if (!IsTraceRecordCompatible(expected, actual))
+                {
+                    continue;
+                }
+
+                yield return op;
+            }
+        }
+
+        private static bool IsTraceRecordCompatible(TraceRecord expected, TraceRecord actual)
+        {
+            if (!string.Equals(expected.EventType, actual.EventType, StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            if (!string.IsNullOrEmpty(expected.PodName) &&
+                !string.Equals(expected.PodName, "unknown", StringComparison.OrdinalIgnoreCase) &&
+                !string.Equals(expected.PodName, actual.PodName, StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            return ContainsAll(expected.DetailsString, actual.DetailsString) &&
+                   ContainsAll(expected.DetailsInt, actual.DetailsInt) &&
+                   ContainsAll(expected.DetailsBool, actual.DetailsBool);
+        }
+
+        private static bool ContainsAll<T>(
+            IDictionary<string, T> expected,
+            IDictionary<string, T> actual)
+        {
+            if (expected == null || expected.Count == 0)
+            {
+                return true;
+            }
+
+            if (actual == null)
+            {
+                return false;
+            }
+
+            foreach (var kvp in expected)
+            {
+                if (!actual.TryGetValue(kvp.Key, out var actualValue) ||
+                    !EqualityComparer<T>.Default.Equals(kvp.Value, actualValue))
+                {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        private static string DescribeEnabledOperation(AsyncOperation op)
+        {
+            if (op is not StateMachineOperation smOp)
+            {
+                return $"{op.Id}:{op.Name}";
+            }
+
+            var (status, e, _) = smOp.StateMachine.PeekNextEvent();
+            if (status == DequeueStatus.Success && e != null && TraceValidator.TryExtractTraceEvent(e, out var traceEvent))
+            {
+                return $"{op.Id}:{op.Name}[trace:{traceEvent.EventType}]";
+            }
+
+            var eventName = e?.GetType().Name ?? "none";
+            return $"{op.Id}:{op.Name}[{status}:{eventName}]";
         }
 
         private static bool MatchesType(string targetType, string fullTypeName)

@@ -302,6 +302,14 @@ namespace PChecker.Runtime.StateMachines
             Inbox = inbox;
             VectorTime = new VectorTime(Id);
         }
+
+        /// <summary>
+        /// Peeks the next event that can be dequeued by this state machine, without mutating inbox state.
+        /// </summary>
+        internal (DequeueStatus status, Event e, EventInfo info) PeekNextEvent()
+        {
+            return Inbox.Peek();
+        }
         
         /// <summary>
         /// Returns a nondeterministic boolean choice, that can be

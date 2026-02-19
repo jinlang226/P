@@ -158,6 +158,28 @@ namespace PChecker.Runtime.StateMachines.EventQueues
             return (DequeueStatus.Default, DefaultEvent.Instance, new EventInfo(DefaultEvent.Instance, eventOrigin, StateMachine.VectorTime));
         }
 
+        /// <inheritdoc/>
+        public (DequeueStatus status, Event e, EventInfo info) Peek()
+        {
+            if (RaisedEvent != default && !StateMachineManager.IsEventIgnored(RaisedEvent.e, RaisedEvent.info))
+            {
+                return (DequeueStatus.Raised, RaisedEvent.e, RaisedEvent.info);
+            }
+
+            var (e, info) = TryDequeueEvent(checkOnly: true);
+            if (e != null)
+            {
+                return (DequeueStatus.Success, e, info);
+            }
+
+            if (!StateMachineManager.IsDefaultHandlerAvailable())
+            {
+                return (DequeueStatus.NotAvailable, null, null);
+            }
+
+            return (DequeueStatus.Default, DefaultEvent.Instance, null);
+        }
+
         /// <summary>
         /// Dequeues the next event and its metadata, if there is one available, else returns null.
         /// </summary>

@@ -80,6 +80,18 @@ namespace PChecker.Runtime.TraceValidation
             return string.IsNullOrWhiteSpace(targetType) ? null : targetType;
         }
 
+        internal bool TryGetExpectedRecord(out TraceRecord record)
+        {
+            if (Index < 0 || Index >= Trace.Count)
+            {
+                record = null;
+                return false;
+            }
+
+            record = Trace[Index];
+            return true;
+        }
+
         internal bool TryMatch(string receiverType, Event e, out string errorMessage)
         {
             return TryMatch(receiverType, null, e, out errorMessage);
@@ -205,11 +217,6 @@ namespace PChecker.Runtime.TraceValidation
         {
             if (Index >= Trace.Count)
             {
-                if (PendingValues.Count == 0)
-                {
-                    return null;
-                }
-
                 foreach (var pendingQueue in PendingValues.Values)
                 {
                     if (pendingQueue.Count == 0)
@@ -219,6 +226,17 @@ namespace PChecker.Runtime.TraceValidation
 
                     var pending = pendingQueue.Peek();
                     return $"Trace value validation failed: observed value event '{pending.Actual.EventType}' without a matching trace entry.";
+                }
+
+                foreach (var expectedQueue in ExpectedByEventType.Values)
+                {
+                    if (expectedQueue.Count == 0)
+                    {
+                        continue;
+                    }
+
+                    var expected = expectedQueue.Peek();
+                    return $"Trace value validation failed: expected value event '{expected.EventType}' was never observed.";
                 }
 
                 return null;
@@ -543,7 +561,7 @@ namespace PChecker.Runtime.TraceValidation
             return null;
         }
 
-        private static bool TryExtractTraceEvent(Event e, out TraceRecord traceEvent)
+        internal static bool TryExtractTraceEvent(Event e, out TraceRecord traceEvent)
         {
             traceEvent = default;
             if (e is null || e.Payload is null)

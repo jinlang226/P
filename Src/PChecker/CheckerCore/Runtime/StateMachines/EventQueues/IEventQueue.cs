@@ -33,6 +33,11 @@ namespace PChecker.Runtime.StateMachines.EventQueues
         (DequeueStatus status, Event e, EventInfo info) Dequeue();
 
         /// <summary>
+        /// Peeks the next event that would be dequeued, without mutating queue state.
+        /// </summary>
+        (DequeueStatus status, Event e, EventInfo info) Peek();
+
+        /// <summary>
         /// Enqueues the specified raised event.
         /// </summary>
         void RaiseEvent(Event e);

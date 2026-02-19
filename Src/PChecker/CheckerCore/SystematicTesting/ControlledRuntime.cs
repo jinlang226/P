@@ -1105,6 +1105,7 @@ namespace PChecker.SystematicTesting
         /// </summary>
         internal void NotifyDequeuedEvent(StateMachine stateMachine, Event e, EventInfo eventInfo)
         {
+            TraceInjector?.TryStartInjection();
             var op = Scheduler.GetOperationWithId<StateMachineOperation>(stateMachine.Id.Value);
 
             // Skip `ReceiveEventAsync` if the last operation exited the previous event handler,
@@ -1534,6 +1535,14 @@ namespace PChecker.SystematicTesting
             StateMachineMap.Values.ToList();
 
         internal string GetExpectedTraceTargetType() => TraceValidator?.GetExpectedTargetType();
+
+        internal bool TryGetExpectedTraceRecord(out TraceRecord record)
+        {
+            record = null;
+            return TraceValidator?.TryGetExpectedRecord(out record) ?? false;
+        }
+
+        internal int GetMatchedTraceCount() => TraceValidator?.MatchedCount ?? 0;
         
         /// <summary>
         /// Terminates the runtime and notifies each active state machine to halt execution.

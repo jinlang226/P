@@ -123,6 +123,13 @@ namespace Plang.Options
                 {
                     // Leave empty: TraceValidator will validate all dequeued trace events.
                 }
+                if (configuration.IsTraceValidationEnabled &&
+                    !configuration.PerformFullExploration &&
+                    configuration.TestingIterations == 0)
+                {
+                    // Keep trace validation bounded by default, even when --timeout is provided.
+                    configuration.TestingIterations = 1;
+                }
 
                 // if P compiled file is not set, then search for the compiled dll/jar file locally
                 FindLocalPCompiledFile(configuration);
