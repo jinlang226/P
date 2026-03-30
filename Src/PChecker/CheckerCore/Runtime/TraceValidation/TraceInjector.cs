@@ -152,6 +152,11 @@ namespace PChecker.Runtime.TraceValidation
 
             if (TraceIndex >= Trace.Count)
             {
+                if (Runtime.CheckerConfiguration.StopOnTraceCompletion && Validator != null && Validator.IsCompleted)
+                {
+                    Logger?.WriteLine("TraceInjector: all events matched; stopping schedule at end of trace.");
+                    Runtime.StopScheduler();
+                }
                 return;
             }
 

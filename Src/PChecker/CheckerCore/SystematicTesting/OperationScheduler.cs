@@ -861,7 +861,7 @@ namespace PChecker.SystematicTesting
         /// <summary>
         /// Stops the scheduler.
         /// </summary>
-        private void Stop()
+        internal void Stop()
         {
             IsRunning = false;
             KillRemainingOperations();

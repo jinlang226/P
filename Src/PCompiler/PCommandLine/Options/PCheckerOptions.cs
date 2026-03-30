@@ -81,6 +81,12 @@ namespace Plang.Options
             replayOptions.AddArgument("traceguided", null,
                 "Guide scheduling using trace targets (if present) by prioritizing enabled operations that match the next trace entry.",
                 typeof(bool));
+            replayOptions.AddArgument("trace-stop-at-end", null,
+                "Deprecated compatibility alias. Trace validation now stops the schedule immediately after the final trace event is matched by default.",
+                typeof(bool));
+            replayOptions.AddArgument("trace-continue-after-end", null,
+                "Continue running after the final trace event is matched instead of stopping immediately at end of trace.",
+                typeof(bool));
 
             var advancedGroup = Parser.GetOrCreateGroup("advanced", "Advanced options");
             advancedGroup.AddArgument("explore", null, "Keep testing until the bound (e.g. schedule or time) is reached", typeof(bool));
@@ -339,6 +345,12 @@ namespace Plang.Options
                     break;
                 case "traceguided":
                     checkerConfiguration.IsTraceGuidedSchedulingEnabled = true;
+                    break;
+                case "trace-stop-at-end":
+                    checkerConfiguration.StopOnTraceCompletion = true;
+                    break;
+                case "trace-continue-after-end":
+                    checkerConfiguration.StopOnTraceCompletion = false;
                     break;
                 case "iterations":
                 case "schedules":

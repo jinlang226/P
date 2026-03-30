@@ -1511,13 +1511,13 @@ namespace PChecker.SystematicTesting
 
             if (TraceValidator != null && !TraceValidator.IsCompleted)
             {
-                var errorMessage = TraceValidator.GetUnmatchedError();
-                if (!string.IsNullOrEmpty(errorMessage))
+                var traceError = TraceValidator.GetUnmatchedError();
+                if (!string.IsNullOrEmpty(traceError))
                 {
-                    Scheduler.NotifyAssertionFailure(errorMessage, killTasks: false, cancelExecution: false);
+                    Scheduler.NotifyAssertionFailure(traceError, killTasks: false, cancelExecution: false);
                 }
             }
-            else if (TraceValidator != null && TraceValidator.IsCompleted)
+            else if (TraceValidator != null && !Scheduler.BugFound)
             {
                 Logger?.WriteLine($"Trace validation PASSED (matched {TraceValidator.MatchedCount}/{TraceValidator.TotalCount}).");
             }
@@ -1543,6 +1543,8 @@ namespace PChecker.SystematicTesting
         }
 
         internal int GetMatchedTraceCount() => TraceValidator?.MatchedCount ?? 0;
+
+        internal void StopScheduler() => Scheduler.Stop();
         
         /// <summary>
         /// Terminates the runtime and notifies each active state machine to halt execution.

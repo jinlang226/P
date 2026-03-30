@@ -217,6 +217,14 @@ namespace PChecker
         public bool IsTraceGuidedSchedulingEnabled;
 
         /// <summary>
+        /// If true, then the checker stops the current schedule as soon as the last trace
+        /// event has been matched. This is the default trace-validation semantics: once
+        /// the full trace is matched, the run is complete even if the model could keep
+        /// executing beyond the end of the trace.
+        /// </summary>
+        public bool StopOnTraceCompletion;
+
+        /// <summary>
         /// If true, then messages are logged.
         /// </summary>
         [DataMember]
@@ -362,6 +370,7 @@ namespace PChecker
             TraceInjectionTargets = new List<string>();
             TraceValidationTargets = new List<string>();
             IsTraceGuidedSchedulingEnabled = false;
+            StopOnTraceCompletion = true;
 
             ReportCodeCoverage = false;
             ReportActivityCoverage = true;
