@@ -99,40 +99,36 @@ namespace PChecker.Runtime.TraceValidation
 
         internal void TryStartInjection()
         {
+            bool justStarted;
             lock (Gate)
             {
-                TryStartInjectionLocked();
+                justStarted = TryStartInjectionLocked();
             }
-        }
-
-        private void TryStartInjectionLocked()
-        {
-            if (Started)
+            if (justStarted)
             {
-                return;
-            }
-
-            if (TargetTypeNames.Count == 0)
-            {
-                if (Targets.Count > 0)
-                {
-                    Started = true;
-                    Logger?.WriteLine($"TraceInjector: starting with {Targets.Count} targets.");
-                    StartInjection();
-                }
-                return;
-            }
-
-            if (Targets.Count == TargetTypeNames.Count)
-            {
-                Started = true;
-                Logger?.WriteLine($"TraceInjector: starting with {Targets.Count} targets.");
                 StartInjection();
             }
         }
 
+        private bool TryStartInjectionLocked()
+        {
+            if (Started)
+            {
+                return false;
+            }
 
+            bool ready = (TargetTypeNames.Count == 0 && Targets.Count > 0) ||
+                         (TargetTypeNames.Count > 0 && Targets.Count == TargetTypeNames.Count);
+            if (!ready)
+            {
+                return false;
+            }
 
+            Started = true;
+            Logger?.WriteLine($"TraceInjector: starting with {Targets.Count} targets.");
+            return true;
+        }
+        
         private void StartInjection()
         {
             Logger?.WriteLine("TraceInjector: starting injection.");
