@@ -19,6 +19,8 @@ namespace PChecker.Runtime.TraceValidation
         private readonly Dictionary<string, Queue<PendingValue>> PendingValues;
         private readonly Dictionary<string, int> LastSpecInt;
         private readonly Dictionary<string, bool> LastSpecBool;
+        private readonly HashSet<string> SpecIntFields;
+        private readonly HashSet<string> SpecBoolFields;
         private readonly string TraceFile;
         private readonly TraceValidationReport Report;
         private int Index;
@@ -26,7 +28,9 @@ namespace PChecker.Runtime.TraceValidation
         internal int MatchedCount => Index;
         internal int TotalCount => Trace.Count;
 
-        internal TraceValidator(string traceFile, IEnumerable<string> targetTypeNames, TextWriter logger)
+        internal TraceValidator(string traceFile, IEnumerable<string> targetTypeNames,
+            IEnumerable<string> specIntFields, IEnumerable<string> specBoolFields,
+            TextWriter logger)
         {
             if (string.IsNullOrEmpty(traceFile))
             {
@@ -40,6 +44,12 @@ namespace PChecker.Runtime.TraceValidation
             PendingValues = new Dictionary<string, Queue<PendingValue>>(StringComparer.Ordinal);
             LastSpecInt = new Dictionary<string, int>(StringComparer.Ordinal);
             LastSpecBool = new Dictionary<string, bool>(StringComparer.Ordinal);
+            SpecIntFields = specIntFields != null
+                ? new HashSet<string>(specIntFields, StringComparer.Ordinal)
+                : new HashSet<string>(StringComparer.Ordinal);
+            SpecBoolFields = specBoolFields != null
+                ? new HashSet<string>(specBoolFields, StringComparer.Ordinal)
+                : new HashSet<string>(StringComparer.Ordinal);
             Report = new TraceValidationReport(traceFile);
             InitializeSpecFromTrace();
             if (targetTypeNames != null)
@@ -374,31 +384,23 @@ namespace PChecker.Runtime.TraceValidation
 
         private void UpdateLastSpecFromRecord(TraceRecord record)
         {
-            if (record.DetailsInt != null &&
-                record.DetailsInt.TryGetValue("specReplicas", out var specReplicas))
+            foreach (var field in SpecIntFields)
             {
-                LastSpecInt["specReplicas"] = specReplicas;
+                if (record.DetailsInt != null && record.DetailsInt.TryGetValue(field, out var v))
+                    LastSpecInt[field] = v;
+                if (record.DetailsString != null &&
+                    record.DetailsString.TryGetValue(field, out var s) &&
+                    int.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed))
+                    LastSpecInt[field] = parsed;
             }
-
-            if (record.DetailsBool != null &&
-                record.DetailsBool.TryGetValue("autoEnableAllFeatureFlags", out var autoEnable))
+            foreach (var field in SpecBoolFields)
             {
-                LastSpecBool["autoEnableAllFeatureFlags"] = autoEnable;
-            }
-
-            if (record.DetailsString != null)
-            {
-                if (record.DetailsString.TryGetValue("specReplicas", out var specReplicasStr) &&
-                    int.TryParse(specReplicasStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsedReplicas))
-                {
-                    LastSpecInt["specReplicas"] = parsedReplicas;
-                }
-
-                if (record.DetailsString.TryGetValue("autoEnableAllFeatureFlags", out var autoEnableStr) &&
-                    bool.TryParse(autoEnableStr, out var parsedAutoEnable))
-                {
-                    LastSpecBool["autoEnableAllFeatureFlags"] = parsedAutoEnable;
-                }
+                if (record.DetailsBool != null && record.DetailsBool.TryGetValue(field, out var v))
+                    LastSpecBool[field] = v;
+                if (record.DetailsString != null &&
+                    record.DetailsString.TryGetValue(field, out var s) &&
+                    bool.TryParse(s, out var parsed))
+                    LastSpecBool[field] = parsed;
             }
         }
 

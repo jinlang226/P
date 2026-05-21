@@ -212,6 +212,18 @@ namespace PChecker
         public List<string> TraceValidationTargets;
 
         /// <summary>
+        /// Int field names in trace records to track as spec snapshot fields.
+        /// Defaults to empty (no int snapshot tracking).
+        /// </summary>
+        public HashSet<string> TraceSpecIntFields { get; set; } = new HashSet<string>();
+
+        /// <summary>
+        /// Bool field names in trace records to track as spec snapshot fields.
+        /// Defaults to empty (no bool snapshot tracking).
+        /// </summary>
+        public HashSet<string> TraceSpecBoolFields { get; set; } = new HashSet<string>();
+
+        /// <summary>
         /// If true, scheduling will be guided by the trace target (if present).
         /// </summary>
         public bool IsTraceGuidedSchedulingEnabled;
@@ -369,6 +381,8 @@ namespace PChecker
             IsTraceInjectionEnabled = false;
             TraceInjectionTargets = new List<string>();
             TraceValidationTargets = new List<string>();
+            TraceSpecIntFields = new HashSet<string>();
+            TraceSpecBoolFields = new HashSet<string>();
             IsTraceGuidedSchedulingEnabled = false;
             StopOnTraceCompletion = true;
 

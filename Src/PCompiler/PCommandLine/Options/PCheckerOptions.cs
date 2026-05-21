@@ -78,6 +78,12 @@ namespace Plang.Options
             var traceValidationTargets = replayOptions.AddArgument("tracevalidate-target", "tvt",
                 "Optional trace validation target state machine types (comma-separated). If not provided, all dequeued trace events are validated.");
             traceValidationTargets.IsMultiValue = true;
+            var traceSpecIntFields = replayOptions.AddArgument("trace-spec-int-field", "tsif",
+                "Int field names to track as spec snapshot fields (comma-separated).");
+            traceSpecIntFields.IsMultiValue = true;
+            var traceSpecBoolFields = replayOptions.AddArgument("trace-spec-bool-field", "tsbf",
+                "Bool field names to track as spec snapshot fields (comma-separated).");
+            traceSpecBoolFields.IsMultiValue = true;
             replayOptions.AddArgument("traceguided", null,
                 "Guide scheduling using trace targets (if present) by prioritizing enabled operations that match the next trace entry.",
                 typeof(bool));
@@ -342,6 +348,30 @@ namespace Plang.Options
                     }
                 }
 
+                    break;
+                case "trace-spec-int-field":
+                {
+                    if (option.Value is string[] values)
+                    {
+                        foreach (var value in values)
+                        {
+                            if (!string.IsNullOrWhiteSpace(value))
+                                checkerConfiguration.TraceSpecIntFields.Add(value.Trim());
+                        }
+                    }
+                }
+                    break;
+                case "trace-spec-bool-field":
+                {
+                    if (option.Value is string[] values)
+                    {
+                        foreach (var value in values)
+                        {
+                            if (!string.IsNullOrWhiteSpace(value))
+                                checkerConfiguration.TraceSpecBoolFields.Add(value.Trim());
+                        }
+                    }
+                }
                     break;
                 case "traceguided":
                     checkerConfiguration.IsTraceGuidedSchedulingEnabled = true;

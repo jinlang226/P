@@ -233,7 +233,10 @@ namespace PChecker.SystematicTesting
                 !string.IsNullOrEmpty(checkerConfiguration.TraceValidationFile))
             {
                 TraceValidator = new TraceValidator(checkerConfiguration.TraceValidationFile,
-                    checkerConfiguration.TraceValidationTargets, LogWriter.Logger);
+                    checkerConfiguration.TraceValidationTargets,
+                    checkerConfiguration.TraceSpecIntFields,
+                    checkerConfiguration.TraceSpecBoolFields,
+                    LogWriter.Logger);
             }
             if (checkerConfiguration.IsTraceInjectionEnabled &&
                 !string.IsNullOrEmpty(checkerConfiguration.TraceValidationFile))
@@ -274,7 +277,10 @@ namespace PChecker.SystematicTesting
                 !string.IsNullOrEmpty(checkerConfiguration.TraceValidationFile))
             {
                 TraceValidator = new TraceValidator(checkerConfiguration.TraceValidationFile,
-                    checkerConfiguration.TraceValidationTargets, LogWriter.Logger);
+                    checkerConfiguration.TraceValidationTargets,
+                    checkerConfiguration.TraceSpecIntFields,
+                    checkerConfiguration.TraceSpecBoolFields,
+                    LogWriter.Logger);
             }
             if (checkerConfiguration.IsTraceInjectionEnabled &&
                 !string.IsNullOrEmpty(checkerConfiguration.TraceValidationFile))
