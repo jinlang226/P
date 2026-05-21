@@ -206,7 +206,7 @@ namespace PChecker.SystematicTesting
                     var expectedCandidates = FilterCandidatesByExpectedTraceEvent(enabledValidationTargets, expectedTraceRecord).ToList();
                     if (expectedCandidates.Count == 0)
                     {
-                        var hasDequeuableTraceTarget = enabledValidationTargets.Any(op => IsDequeuableTraceValidationTargetOperation(op));
+                        var hasDequeuableTraceTarget = enabledValidationTargets.Any(op => IsDequeuableTraceValidationTargetOperation(op, expectedTraceRecord));
                         if (hasDequeuableTraceTarget)
                         {
                             var enabledSummary = string.Join(", ", ops.Where(op => op.Status is AsyncOperationStatus.Enabled)
@@ -545,7 +545,7 @@ namespace PChecker.SystematicTesting
             return IsValidationTargetType(smOp.StateMachine.Id.Type);
         }
 
-        private bool IsDequeuableTraceValidationTargetOperation(AsyncOperation op)
+        private bool IsDequeuableTraceValidationTargetOperation(AsyncOperation op, TraceRecord expected)
         {
             if (!IsEnabledValidationTargetOperation(op))
             {
@@ -558,13 +558,15 @@ namespace PChecker.SystematicTesting
                 return false;
             }
 
-            var (status, e, _) = smOp.StateMachine.PeekNextEvent();
-            if (status != DequeueStatus.Success || e == null)
+            return smOp.StateMachine.ContainsMatchingEvent(e =>
             {
-                return false;
-            }
+                if (!TraceValidator.TryExtractTraceEvent(e, out var actual))
+                {
+                    return false;
+                }
 
-            return TraceValidator.TryExtractTraceEvent(e, out _);
+                return IsTraceRecordCompatible(expected, actual);
+            });
         }
 
         private bool IsValidationTargetType(string fullTypeName)
@@ -589,23 +591,20 @@ namespace PChecker.SystematicTesting
                     continue;
                 }
 
-                var (status, e, _) = smOp.StateMachine.PeekNextEvent();
-                if (status != DequeueStatus.Success || e is null)
+                var hasMatch = smOp.StateMachine.ContainsMatchingEvent(e =>
                 {
-                    continue;
-                }
+                    if (!TraceValidator.TryExtractTraceEvent(e, out var actual))
+                    {
+                        return false;
+                    }
 
-                if (!TraceValidator.TryExtractTraceEvent(e, out var actual))
+                    return IsTraceRecordCompatible(expected, actual);
+                });
+
+                if (hasMatch)
                 {
-                    continue;
+                    yield return op;
                 }
-
-                if (!IsTraceRecordCompatible(expected, actual))
-                {
-                    continue;
-                }
-
-                yield return op;
             }
         }
 

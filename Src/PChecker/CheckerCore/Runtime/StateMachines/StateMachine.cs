@@ -312,6 +312,15 @@ namespace PChecker.Runtime.StateMachines
         }
         
         /// <summary>
+        /// Returns true if any non-ignored, non-deferred event anywhere in the inbox
+        /// satisfies the predicate. Scans the full queue, not just the head.
+        /// </summary>
+        internal bool ContainsMatchingEvent(Func<Event, bool> predicate)
+        {
+            return Inbox.ContainsMatchingEvent(predicate);
+        }
+        
+        /// <summary>
         /// Returns a nondeterministic boolean choice, that can be
         /// controlled during analysis or testing.
         /// </summary>

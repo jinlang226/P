@@ -180,6 +180,33 @@ namespace PChecker.Runtime.StateMachines.EventQueues
             return (DequeueStatus.Default, DefaultEvent.Instance, null);
         }
 
+        /// <inheritdoc/>
+        public bool ContainsMatchingEvent(Func<Event, bool> predicate)
+        {
+            if (RaisedEvent != default &&
+                !StateMachineManager.IsEventIgnored(RaisedEvent.e, RaisedEvent.info) &&
+                predicate(RaisedEvent.e))
+            {
+                return true;
+            }
+
+            var node = Queue.First;
+            while (node != null)
+            {
+                var currentEvent = node.Value;
+                if (!StateMachineManager.IsEventIgnored(currentEvent.e, currentEvent.info) &&
+                    !StateMachineManager.IsEventDeferred(currentEvent.e, currentEvent.info) &&
+                    predicate(currentEvent.e))
+                {
+                    return true;
+                }
+
+                node = node.Next;
+            }
+
+            return false;
+        }
+        
         /// <summary>
         /// Dequeues the next event and its metadata, if there is one available, else returns null.
         /// </summary>

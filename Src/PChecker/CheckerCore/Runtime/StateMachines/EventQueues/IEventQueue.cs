@@ -36,6 +36,12 @@ namespace PChecker.Runtime.StateMachines.EventQueues
         /// Peeks the next event that would be dequeued, without mutating queue state.
         /// </summary>
         (DequeueStatus status, Event e, EventInfo info) Peek();
+        
+        /// <summary>
+        /// Returns true if any non-ignored, non-deferred event anywhere in the queue
+        /// satisfies the predicate. Unlike Peek, does not stop at the head.
+        /// </summary>
+        bool ContainsMatchingEvent(Func<Event, bool> predicate);
 
         /// <summary>
         /// Enqueues the specified raised event.
