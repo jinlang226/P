@@ -162,6 +162,11 @@ namespace PChecker.Runtime.TraceValidation
         internal bool TryMatchValue(string receiverType, string receiverState, Event e, out string errorMessage)
         {
             errorMessage = null;
+            if (TargetTypeNames.Count > 0 && !IsTargetType(receiverType))
+            {
+                return true;
+            }
+            
             if (!TryExtractTraceEvent(e, out var actual))
             {
                 return true;
