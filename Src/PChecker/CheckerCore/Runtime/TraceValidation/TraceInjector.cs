@@ -74,8 +74,6 @@ namespace PChecker.Runtime.TraceValidation
                 }
                 else
                 {
-                if (TargetTypeNames.Count > 0)
-                {
                     foreach (var target in TargetTypeNames)
                     {
                         if (Targets.ContainsKey(target))
@@ -91,8 +89,6 @@ namespace PChecker.Runtime.TraceValidation
                         }
                     }
                 }
-                }
-
             }
         }
 

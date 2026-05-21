@@ -71,6 +71,10 @@ namespace PChecker.Runtime.TraceValidation
         {
             foreach (var record in Trace)
             {
+                if (string.Equals(record.EventType, "SpecObserved", StringComparison.Ordinal))
+                {
+                    continue;
+                }
                 UpdateLastSpecFromRecord(record);
                 if (LastSpecInt.Count > 0 || LastSpecBool.Count > 0)
                 {
@@ -817,6 +821,7 @@ namespace PChecker.Runtime.TraceValidation
                 };
             }
         }
+        
         private static Dictionary<string, bool> ConvertBoolMap(PMap map)
         {
             var result = new Dictionary<string, bool>();
