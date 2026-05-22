@@ -221,6 +221,7 @@ namespace PChecker.Runtime.TraceValidation
                         {
                             return recordMatches;
                         }
+                        return new List<StateMachineId>();
                     }
 
                     // In explicit-target mode, prefer TraceAdapter fan-out when present.
