@@ -236,6 +236,8 @@ namespace PChecker.Runtime.TraceValidation
         {
             if (Index >= Trace.Count)
             {
+                var errors = new List<string>();
+
                 foreach (var pendingQueue in PendingValues.Values)
                 {
                     if (pendingQueue.Count == 0)
@@ -244,7 +246,7 @@ namespace PChecker.Runtime.TraceValidation
                     }
 
                     var pending = pendingQueue.Peek();
-                    return $"Trace value validation failed: observed value event '{pending.Actual.EventType}' without a matching trace entry.";
+                    errors.Add($"Trace value validation failed: observed value event '{pending.Actual.EventType}' without a matching trace entry.");
                 }
 
                 foreach (var expectedQueue in ExpectedByEventType.Values)
@@ -255,10 +257,10 @@ namespace PChecker.Runtime.TraceValidation
                     }
 
                     var expected = expectedQueue.Peek();
-                    return $"Trace value validation failed: expected value event '{expected.EventType}' was never observed.";
+                    errors.Add($"Trace value validation failed: expected value event '{expected.EventType}' was never observed.");
                 }
 
-                return null;
+                return errors.Count > 0 ? string.Join("\n", errors) : null;
             }
 
             var next = Trace[Index];
