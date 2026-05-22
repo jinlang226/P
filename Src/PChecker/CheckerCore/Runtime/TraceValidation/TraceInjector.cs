@@ -202,6 +202,7 @@ namespace PChecker.Runtime.TraceValidation
                 Runtime.SendEventFromRuntime(targetId, ev);
             }
 
+            RetryCount = 0;
             TraceIndex++;
         }
 
