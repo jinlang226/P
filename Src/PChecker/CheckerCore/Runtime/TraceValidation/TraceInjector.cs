@@ -269,8 +269,15 @@ namespace PChecker.Runtime.TraceValidation
                    fullName.EndsWith("Tester", StringComparison.Ordinal);
         }
 
+        private static Type _cachedTraceEventType;
+        
         private static Type GetTraceEventType()
         {
+            if (_cachedTraceEventType != null)
+            {
+                return _cachedTraceEventType;
+            }
+
             foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
             {
                 Type type = null;
@@ -285,7 +292,8 @@ namespace PChecker.Runtime.TraceValidation
 
                 if (type != null && typeof(Event).IsAssignableFrom(type))
                 {
-                    return type;
+                    _cachedTraceEventType = type;
+                    return _cachedTraceEventType;
                 }
             }
 
