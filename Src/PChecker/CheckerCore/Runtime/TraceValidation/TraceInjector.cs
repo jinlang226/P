@@ -233,7 +233,7 @@ namespace PChecker.Runtime.TraceValidation
                         return adapterMatches;
                     }
 
-                    return new List<StateMachineId>();
+                    return Targets.Values.ToList();
                 }
 
                 if (!string.IsNullOrWhiteSpace(recordTargetType))
