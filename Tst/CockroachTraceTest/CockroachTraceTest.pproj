@@ -1,0 +1,10 @@
+<!-- Minimal CockroachDB trace validation runtime test -->
+<Project>
+<ProjectName>CockroachTraceTest</ProjectName>
+<InputFiles>
+    <PFile>./PSrc/</PFile>
+    <PFile>./PSpec/</PFile>
+    <PFile>./PTst/</PFile>
+</InputFiles>
+<OutputDir>./PGenerated/</OutputDir>
+</Project>

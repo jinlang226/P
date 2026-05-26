@@ -1,0 +1,6 @@
+{"events":[
+{"eventType":"CockroachOperatorSpecObserved","details":{"specNodes":5,"reconcileId":"test#1"}},
+{"eventType":"DecommissionCommandReturn","details":{"success":false,"phase":"mark_decommissioned","reconcileId":"test#1"}},
+{"eventType":"CockroachOperatorSpecObserved","details":{"specNodes":3,"reconcileId":"test#2"}},
+{"eventType":"CockroachOperatorSpecObserved","details":{"specNodes":3,"reconcileId":"test#3"}}
+]}

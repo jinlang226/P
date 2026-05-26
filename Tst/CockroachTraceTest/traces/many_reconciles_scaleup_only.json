@@ -1,0 +1,11 @@
+{"events":[
+{"eventType":"CockroachOperatorSpecObserved","details":{"specNodes":1,"reconcileId":"test#1"}},
+{"eventType":"CockroachOperatorSpecObserved","details":{"specNodes":2,"reconcileId":"test#2"}},
+{"eventType":"CockroachOperatorSpecObserved","details":{"specNodes":3,"reconcileId":"test#3"}},
+{"eventType":"CockroachOperatorSpecObserved","details":{"specNodes":4,"reconcileId":"test#4"}},
+{"eventType":"CockroachOperatorSpecObserved","details":{"specNodes":5,"reconcileId":"test#5"}},
+{"eventType":"CockroachOperatorSpecObserved","details":{"specNodes":6,"reconcileId":"test#6"}},
+{"eventType":"CockroachOperatorSpecObserved","details":{"specNodes":7,"reconcileId":"test#7"}},
+{"eventType":"CockroachOperatorSpecObserved","details":{"specNodes":8,"reconcileId":"test#8"}},
+{"eventType":"CockroachOperatorSpecObserved","details":{"specNodes":8,"reconcileId":"test#9"}}
+]}
