@@ -1,0 +1,9 @@
+{"events":[
+{"eventType":"DecommissionCommandReturn","details":{"reconcileId":"test#1"},"detailsBool":{"success":false}},
+{"eventType":"CockroachOperatorSpecObserved","details":{"specNodes":3,"reconcileId":"pad#1"}},
+{"eventType":"DecommissionCommandReturn","details":{"reconcileId":"test#2"},"detailsBool":{"success":false}},
+{"eventType":"CockroachOperatorSpecObserved","details":{"specNodes":3,"reconcileId":"pad#2"}},
+{"eventType":"DecommissionCommandReturn","details":{"reconcileId":"test#3"},"detailsBool":{"success":true}},
+{"eventType":"CockroachOperatorSpecObserved","details":{"specNodes":3,"reconcileId":"pad#3"}},
+{"eventType":"CockroachOperatorSpecObserved","details":{"specNodes":3,"reconcileId":"pad#4"}}
+]}

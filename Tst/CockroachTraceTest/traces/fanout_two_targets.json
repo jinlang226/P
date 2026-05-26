@@ -1,0 +1,6 @@
+{"events":[
+{"eventType":"CockroachOperatorSpecObserved","details":{"specNodes":3,"reconcileId":"test#1"}},
+{"eventType":"CockroachOperatorSpecObserved","details":{"specNodes":4,"reconcileId":"test#2"}},
+{"eventType":"CockroachOperatorSpecObserved","details":{"specNodes":5,"reconcileId":"test#3"}},
+{"eventType":"CockroachOperatorSpecObserved","details":{"specNodes":5,"reconcileId":"test#4"}}
+]}

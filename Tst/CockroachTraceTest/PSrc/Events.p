@@ -13,3 +13,6 @@ event eTraceEvent: tTraceEvent;
 // Model-level events announced to the spec monitor.
 event eDecommissionSucceeded;
 event eScaleDownRequested;
+
+// Value-event: payload matches tTraceEvent; dequeuing this triggers TryMatchValue.
+event eValueEvent: tTraceEvent;

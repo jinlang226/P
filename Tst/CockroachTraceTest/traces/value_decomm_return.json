@@ -1,0 +1,5 @@
+{"events":[
+{"eventType":"DecommissionCommandReturn","details":{"reconcileId":"test#1"},"detailsBool":{"success":true}},
+{"eventType":"CockroachOperatorSpecObserved","details":{"specNodes":3,"reconcileId":"pad#1"}},
+{"eventType":"CockroachOperatorSpecObserved","details":{"specNodes":3,"reconcileId":"pad#2"}}
+]}
